@@ -57,5 +57,12 @@
       "number": "get Intl.DateTimeFormat.prototype.format",
       "id": "sec-intl.datetimeformat.prototype.format"
     }
+  ],
+  "https://tc39.es/proposal-intl-duration-format/": [
+    {
+      "type": "op",
+      "aoid": "PartitionDurationFormatPattern",
+      "id": "sec-partitiondurationformatpattern"
+    }
   ]
 }

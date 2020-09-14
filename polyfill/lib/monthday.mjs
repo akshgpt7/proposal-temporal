@@ -2,6 +2,7 @@
 
 import { GetDefaultCalendar } from './calendar.mjs';
 import { ES } from './ecmascript.mjs';
+import { DateTimeFormat } from './intl.mjs';
 import { GetIntrinsic, MakeIntrinsicClass } from './intrinsicclass.mjs';
 import { ISO_MONTH, ISO_DAY, ISO_YEAR, CALENDAR, MONTH_DAY_BRAND, CreateSlots, GetSlot, SetSlot } from './slots.mjs';
 
@@ -85,30 +86,35 @@ export class MonthDay {
     }
     return resultString;
   }
-  toLocaleString(...args) {
+  toLocaleString(locales = undefined, options = undefined) {
     if (!ES.IsTemporalMonthDay(this)) throw new TypeError('invalid receiver');
-    return new Intl.DateTimeFormat(...args).format(this);
+    return new DateTimeFormat(locales, options).format(this);
   }
   valueOf() {
     throw new TypeError('use equals() to compare Temporal.MonthDay');
   }
   toDateInYear(item, options = undefined) {
     if (!ES.IsTemporalMonthDay(this)) throw new TypeError('invalid receiver');
+
     let era, year;
-    if (typeof item === 'object' && item !== null) {
+    if (ES.Type(item) === 'Object') {
       ({ era, year } = ES.ToRecord(item, [['era', undefined], ['year']]));
     } else {
       year = ES.ToInteger(item);
     }
+
+    options = ES.NormalizeOptionsObject(options);
+    const overflow = ES.ToTemporalOverflow(options);
+
     const calendar = GetSlot(this, CALENDAR);
-    const fields = ES.ToTemporalMonthDayRecord(this);
+    const { month, day } = ES.ToTemporalMonthDayRecord(this);
     const Date = GetIntrinsic('%Temporal.Date%');
-    return calendar.dateFromFields({ ...fields, era, year }, options, Date);
+    return ES.DateFromFields(calendar, { day, era, month, year }, overflow, Date);
   }
   getFields() {
     const fields = ES.ToTemporalMonthDayRecord(this);
     if (!fields) throw new TypeError('invalid receiver');
-    fields.calendar = GetSlot(this, CALENDAR);
+    fields.calendar = GetSlot(this, CALENDAR); // TODO
     return fields;
   }
   getISOFields() {
@@ -133,11 +139,8 @@ export class MonthDay {
         const referenceISOYear = GetSlot(item, ISO_YEAR);
         result = new this(month, day, calendar, referenceISOYear);
       } else {
-        let calendar = item.calendar;
-        if (calendar === undefined) calendar = GetDefaultCalendar();
-        calendar = TemporalCalendar.from(calendar);
-        const fields = ES.ToTemporalMonthDayRecord(item);
-        result = calendar.monthDayFromFields(fields, options, this);
+        const { calendar = GetDefaultCalendar(), month, day } = ES.ToTemporalMonthDayRecord(item);
+        result = ES.MonthDayFromFields(calendar, { day, month }, overflow, this);
       }
     } else {
       let { month, day, referenceISOYear, calendar } = ES.ParseTemporalMonthDayString(ES.ToString(item));

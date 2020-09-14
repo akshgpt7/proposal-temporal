@@ -8,7 +8,9 @@ includes: [compareArray.js]
 
 const expected = [
   "get calendar",
+  "Calendar.from(test)",
   "get era",
+  "toString era",
   "get month",
   "valueOf month",
   "get year",
@@ -18,12 +20,16 @@ const actual = [];
 const fields = {
   year: 1.7,
   month: 1.7,
+  era: "era",
+  calendar: "test",
 };
 const argument = new Proxy(fields, {
   get(target, key) {
     actual.push(`get ${key}`);
-    if (key === "calendar") return Temporal.Calendar.from('iso8601');
     const result = target[key];
+    if (key === "calendar") {
+      return result;
+    }
     return {
       valueOf() {
         actual.push(`valueOf ${key}`);
@@ -31,7 +37,7 @@ const argument = new Proxy(fields, {
       },
       toString() {
         actual.push(`toString ${key}`);
-        return result.toString();
+        return result;
       }
     };
   },
@@ -40,9 +46,23 @@ const argument = new Proxy(fields, {
     return key in target;
   },
 });
+const isoCalendar = Temporal.Calendar.from("iso8601");
+const calendarValue = {
+  yearMonthFromFields(fieldsArgument, options, ctor) {
+    assert.sameValue(fieldsArgument.era, "era", "era argument");
+    assert.sameValue(fieldsArgument.year, 1, "year argument");
+    assert.sameValue(fieldsArgument.month, 1, "month argument");
+    assert.compareArray(Object.keys(fieldsArgument), ["era", "month", "year"]);
+    return new ctor(2, 2, isoCalendar);
+  }
+};
+Temporal.Calendar.from = function(argument) {
+  actual.push(`Calendar.from(${argument})`);
+  return calendarValue;
+};
 const result = Temporal.YearMonth.from(argument);
 assert.sameValue(result.era, undefined, "era result");
-assert.sameValue(result.year, 1, "year result");
-assert.sameValue(result.month, 1, "month result");
-assert.sameValue(result.calendar.id, "iso8601", "calendar result");
+assert.sameValue(result.year, 2, "year result");
+assert.sameValue(result.month, 2, "month result");
+assert.sameValue(result.calendar, isoCalendar, "calendar result");
 assert.compareArray(actual, expected, "order of operations");

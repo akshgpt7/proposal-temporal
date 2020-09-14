@@ -138,8 +138,6 @@ export class Duration {
   }
   with(durationLike, options = undefined) {
     if (!ES.IsTemporalDuration(this)) throw new TypeError('invalid receiver');
-    options = ES.NormalizeOptionsObject(options);
-    const overflow = ES.ToTemporalDurationOverflow(options);
     const props = ES.ToPartialRecord(durationLike, [
       'days',
       'hours',
@@ -155,6 +153,8 @@ export class Duration {
     if (!props) {
       throw new RangeError('invalid duration-like');
     }
+    options = ES.NormalizeOptionsObject(options);
+    const overflow = ES.ToTemporalDurationOverflow(options);
     let {
       years = GetSlot(this, YEARS),
       months = GetSlot(this, MONTHS),
@@ -510,7 +510,8 @@ export class Duration {
     return result;
   }
   getFields() {
-    const fields = ES.ToRecord(this, [
+    if (!ES.IsTemporalDuration(this)) throw new TypeError('invalid receiver');
+    return ES.ToRecord(this, [
       ['days'],
       ['hours'],
       ['microseconds'],
@@ -522,17 +523,19 @@ export class Duration {
       ['weeks'],
       ['years']
     ]);
-    if (!fields) throw new TypeError('invalid receiver');
-    return fields;
   }
   toString() {
     if (!ES.IsTemporalDuration(this)) throw new TypeError('invalid receiver');
     return ES.TemporalDurationToString(this);
   }
-  toLocaleString(...args) {
+  toJSON() {
+    if (!ES.IsTemporalDuration(this)) throw new TypeError('invalid receiver');
+    return ES.TemporalDurationToString(this);
+  }
+  toLocaleString(locales = undefined, options = undefined) {
     if (!ES.IsTemporalDuration(this)) throw new TypeError('invalid receiver');
     if (typeof Intl !== 'undefined' && typeof Intl.DurationFormat !== 'undefined') {
-      return new Intl.DurationFormat(...args).format(this);
+      return new Intl.DurationFormat(locales, options).format(this);
     }
     console.warn('Temporal.Duration.prototype.toLocaleString() requires Intl.DurationFormat.');
     return ES.TemporalDurationToString(this);
@@ -544,19 +547,32 @@ export class Duration {
     options = ES.NormalizeOptionsObject(options);
     const overflow = ES.ToTemporalDurationOverflow(options);
     let years, months, weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds;
-    if (typeof item === 'object' && item) {
-      ({
-        years,
-        months,
-        weeks,
-        days,
-        hours,
-        minutes,
-        seconds,
-        milliseconds,
-        microseconds,
-        nanoseconds
-      } = ES.ToTemporalDurationRecord(item));
+    if (ES.Type(item) === 'Object') {
+      if (ES.IsTemporalDuration(item)) {
+        years = GetSlot(item, YEARS);
+        months = GetSlot(item, MONTHS);
+        weeks = GetSlot(item, WEEKS);
+        days = GetSlot(item, DAYS);
+        hours = GetSlot(item, HOURS);
+        minutes = GetSlot(item, MINUTES);
+        seconds = GetSlot(item, SECONDS);
+        milliseconds = GetSlot(item, MILLISECONDS);
+        microseconds = GetSlot(item, MICROSECONDS);
+        nanoseconds = GetSlot(item, NANOSECONDS);
+      } else {
+        ({
+          years,
+          months,
+          weeks,
+          days,
+          hours,
+          minutes,
+          seconds,
+          milliseconds,
+          microseconds,
+          nanoseconds
+        } = ES.ToTemporalDurationRecord(item));
+      }
     } else {
       ({
         years,
@@ -611,6 +627,5 @@ export class Duration {
     return result;
   }
 }
-Duration.prototype.toJSON = Duration.prototype.toString;
 
 MakeIntrinsicClass(Duration, 'Temporal.Duration');

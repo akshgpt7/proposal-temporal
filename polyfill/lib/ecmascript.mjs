@@ -96,8 +96,9 @@ export const ES = ObjectAssign({}, ES2019, {
     return result;
   },
   FormatCalendarAnnotation: (calendar) => {
-    if (calendar.id === 'iso8601') return '';
-    return `[c=${calendar.id}]`;
+    const id = ES.CalendarToString(calendar);
+    if (id === 'iso8601') return '';
+    return `[c=${id}]`;
   },
   ParseISODateTime: (isoString, { zoneRequired }) => {
     const regex = zoneRequired ? PARSE.absolute : PARSE.datetime;
@@ -116,6 +117,15 @@ export const ES = ObjectAssign({}, ES2019, {
     const millisecond = ES.ToInteger(fraction.slice(0, 3));
     const microsecond = ES.ToInteger(fraction.slice(3, 6));
     const nanosecond = ES.ToInteger(fraction.slice(6, 9));
+    /* TODO:
+      1. If _month_ &lt; 1 or _month_ &gt; 12, then
+        1. Throw a *RangeError* exception.
+      1. Let _maxDay_ be ! DaysInMonth(_year_, _month_).
+      1. If _day_ &lt; 1 or _day_ &gt; _maxDay_, then
+        1. Throw a *RangeError* exception.
+      1. If ! ValidateTime(_hour_, _minute_, _second_, _millisecond_, _microsecond_, _nanosecond_) is *false*, then
+        1. Throw a *RangeError* exception.
+    */
     const offsetSign = match[14] === '-' || match[14] === '\u2212' ? '-' : '+';
     const offset = `${offsetSign}${match[15] || '00'}:${match[16] || '00'}`;
     let ianaName = match[17];
@@ -128,7 +138,7 @@ export const ES = ObjectAssign({}, ES2019, {
       }
     }
     const zone = match[13] ? 'UTC' : ianaName || offset;
-    const calendar = match[18] || null;
+    const calendar = match[18] || undefined;
     return {
       year,
       month,
@@ -181,9 +191,10 @@ export const ES = ObjectAssign({}, ES2019, {
       if (yearString[0] === '\u2212') yearString = `-${yearString.slice(1)}`;
       year = ES.ToInteger(yearString);
       month = ES.ToInteger(match[2]);
-      calendar = match[3] || null;
+      calendar = match[3] || undefined;
     } else {
       ({ year, month, calendar, day: referenceISODay } = ES.ParseISODateTime(isoString, { zoneRequired: false }));
+      // XXX: Why?
       if (!calendar) referenceISODay = undefined;
     }
     return { year, month, calendar, referenceISODay };
@@ -337,20 +348,6 @@ export const ES = ObjectAssign({}, ES2019, {
     return { month, day };
   },
   ToTemporalDurationRecord: (item) => {
-    if (ES.IsTemporalDuration(item)) {
-      return {
-        years: GetSlot(item, YEARS),
-        months: GetSlot(item, MONTHS),
-        weeks: GetSlot(item, WEEKS),
-        days: GetSlot(item, DAYS),
-        hours: GetSlot(item, HOURS),
-        minutes: GetSlot(item, MINUTES),
-        seconds: GetSlot(item, SECONDS),
-        milliseconds: GetSlot(item, MILLISECONDS),
-        microseconds: GetSlot(item, MICROSECONDS),
-        nanoseconds: GetSlot(item, NANOSECONDS)
-      };
-    }
     return ES.ToRecord(item, [
       ['days', 0],
       ['hours', 0],
@@ -411,7 +408,7 @@ export const ES = ObjectAssign({}, ES2019, {
     return { years, months, weeks, days, hours, minutes, seconds, milliseconds, microseconds, nanoseconds };
   },
   ToLimitedTemporalDuration: (item, disallowedProperties = []) => {
-    if (typeof item !== 'object' || item === null) {
+    if (ES.Type(item) !== 'Object') {
       throw new TypeError('Unexpected type for duration');
     }
     const {
@@ -620,15 +617,17 @@ export const ES = ObjectAssign({}, ES2019, {
     return unit1;
   },
   ToPartialRecord: (bag, fields) => {
-    if (!bag || 'object' !== typeof bag) return false;
+    if (ES.Type(bag) !== 'Object') return false;
     let any;
     for (const property of fields) {
       const value = bag[property];
       if (value !== undefined) {
         any = any || {};
-        if (property === 'era') {
+        if (property === 'calendar') {
           // FIXME: this is terrible
-          any.era = value;
+          any.calendar = ES.ToTemporalCalendar(value);
+        } else if (property === 'era') {
+          any.era = ES.ToString(value);
         } else {
           any[property] = ES.ToInteger(value);
         }
@@ -637,7 +636,7 @@ export const ES = ObjectAssign({}, ES2019, {
     return any ? any : false;
   },
   ToRecord: (bag, fields) => {
-    if (!bag || 'object' !== typeof bag) return false;
+    if (ES.Type(bag) !== 'Object') return false;
     const result = {};
     for (const fieldRecord of fields) {
       const [property, defaultValue] = fieldRecord;
@@ -648,9 +647,11 @@ export const ES = ObjectAssign({}, ES2019, {
         }
         value = defaultValue;
       }
-      if (property === 'era') {
+      if (property === 'calendar') {
         // FIXME: this is terrible
-        result.era = value;
+        result.calendar = value === undefined ? undefined : ES.ToTemporalCalendar(value);
+      } else if (property === 'era') {
+        result.era = ES.ToString(value);
       } else {
         result[property] = ES.ToInteger(value);
       }
@@ -659,10 +660,11 @@ export const ES = ObjectAssign({}, ES2019, {
   },
   // field access in the following operations is intentionally alphabetical
   ToTemporalDateRecord: (bag) => {
-    return ES.ToRecord(bag, [['day'], ['era', undefined], ['month'], ['year']]);
+    return ES.ToRecord(bag, [['calendar', undefined], ['day'], ['era', undefined], ['month'], ['year']]);
   },
   ToTemporalDateTimeRecord: (bag) => {
     return ES.ToRecord(bag, [
+      ['calendar', undefined],
       ['day'],
       ['era', undefined],
       ['hour', 0],
@@ -676,7 +678,7 @@ export const ES = ObjectAssign({}, ES2019, {
     ]);
   },
   ToTemporalMonthDayRecord: (bag) => {
-    return ES.ToRecord(bag, [['day'], ['month']]);
+    return ES.ToRecord(bag, [['calendar', undefined], ['day'], ['month']]);
   },
   ToTemporalTimeRecord: (bag) => {
     return ES.ToRecord(bag, [
@@ -691,6 +693,9 @@ export const ES = ObjectAssign({}, ES2019, {
   ToTemporalYearMonthRecord: (bag) => {
     return ES.ToRecord(bag, [['era', undefined], ['month'], ['year']]);
   },
+  ToTemporalYearMonthCalendarRecord: (bag) => {
+    return ES.ToRecord(bag, [['calendar', undefined], ['era', undefined], ['month'], ['year']]);
+  },
   CalendarFrom: (calendarLike) => {
     const TemporalCalendar = GetIntrinsic('%Temporal.Calendar%');
     let from = TemporalCalendar.from;
@@ -704,11 +709,43 @@ export const ES = ObjectAssign({}, ES2019, {
     return calendar;
   },
   ToTemporalCalendar: (calendarLike) => {
+    //console.log(`ToTemporalCalendar: Type=${ES.Type(calendarLike)}`);
     if (ES.Type(calendarLike) === 'Object') {
       return calendarLike;
     }
     const identifier = ES.ToString(calendarLike);
+    //console.log(`ToTemporalCalendar: id=${identifier}`);
     return ES.CalendarFrom(identifier);
+  },
+  CalendarToString: (calendar) => {
+    let toString = calendar.toString;
+    if (toString === undefined) {
+      toString = GetIntrinsic('%Temporal.Calendar.prototype.toString%');
+    }
+    return ES.ToString(ES.Call(toString, calendar));
+  },
+  CalendarCompare: (one, two) => {
+    const cal1 = ES.CalendarToString(one);
+    const cal2 = ES.CalendarToString(two);
+    return ES.ComparisonResult(cal1 < cal2 ? -1 : cal1 > cal2 ? 1 : 0);
+  },
+  DateFromFields: (calendar, { day, era, month, year }, overflow, constructor) => {
+    const fields = era !== undefined ? { day, era, month, year } : { day, month, year };
+    const result = calendar.dateFromFields(fields, { overflow }, constructor);
+    if (!ES.IsTemporalDate(result)) throw new TypeError('invalid result');
+    return result;
+  },
+  YearMonthFromFields: (calendar, { era, month, year }, overflow, constructor) => {
+    const fields = era !== undefined ? { era, month, year } : { month, year };
+    const result = calendar.yearMonthFromFields(fields, { overflow }, constructor);
+    if (!ES.IsTemporalYearMonth(result)) throw new TypeError('invalid result');
+    return result;
+  },
+  MonthDayFromFields: (calendar, { day, month }, overflow, constructor) => {
+    const fields = { day, month };
+    const result = calendar.monthDayFromFields(fields, { overflow }, constructor);
+    if (!ES.IsTemporalMonthDay(result)) throw new TypeError('invalid result');
+    return result;
   },
   TimeZoneFrom: (temporalTimeZoneLike) => {
     const TemporalTimeZone = GetIntrinsic('%Temporal.TimeZone%');
